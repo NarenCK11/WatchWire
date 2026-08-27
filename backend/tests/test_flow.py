@@ -137,6 +137,27 @@ def test_client_resume_after_reconnect(client, auth_token):
             assert event["score"] == 0.4
 
 
+def test_camera_is_notified_when_client_resumes(client, auth_token):
+    # The camera has no other way to learn its viewer came back after a drop -- it must
+    # receive a fresh "paired" message, not just the earlier peer_disconnected.
+    with client.websocket_connect("/ws/camera") as camera_ws:
+        code = camera_ws.receive_json()["code"]
+
+        with client.websocket_connect(f"/ws/client?token={auth_token}") as client_ws:
+            client_ws.send_json({"type": "pair", "code": code})
+            client_token = client_ws.receive_json()["client_token"]
+            camera_ws.receive_json()  # paired (camera side)
+
+        camera_ws.receive_json()  # peer_disconnected
+
+        with client.websocket_connect(f"/ws/client?token={auth_token}") as resumed_ws:
+            resumed_ws.send_json({"type": "resume", "session_token": client_token})
+            resumed_ws.receive_json()  # paired (client side)
+
+            camera_notice = camera_ws.receive_json()
+            assert camera_notice["type"] == "paired"
+
+
 def test_camera_resume_preserves_pairing(client, auth_token):
     with client.websocket_connect("/ws/camera") as camera_ws:
         issued = camera_ws.receive_json()

@@ -96,6 +96,9 @@ async def client_endpoint(websocket: WebSocket, token: str = Query(...)) -> None
                 await session_store.resume_client(session, websocket)
                 current_session = session
                 await _send_paired(websocket, session)
+                # Let the camera know its viewer is back (it was told about the drop via
+                # peer_disconnected and would otherwise never learn the peer returned).
+                await send_json_safe(session.camera_ws, {"type": "paired", "paired_at": session.paired_at})
 
     except WebSocketDisconnect:
         logger.info("Client disconnected: user=%s", username)
