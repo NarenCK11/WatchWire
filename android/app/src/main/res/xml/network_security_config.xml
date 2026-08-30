@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain ws:// (cleartext) traffic, which Android blocks by default from API 28+.
+  This is required for local/LAN development against a backend that isn't behind TLS yet
+  (e.g. ws://10.0.2.2:8000 in the emulator, or ws://192.168.x.x:8000 on a real device on
+  the same network). For a production deployment, point the app at a wss:// URL instead;
+  that traffic is HTTPS/TLS and is never affected by this cleartext policy either way.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

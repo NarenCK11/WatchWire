@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WatchWire</string>
+    <string name="notification_channel_name">Monitoring Active</string>
+    <string name="notification_channel_description">Shows when WatchWire is actively watching for motion</string>
+</resources>
