@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed CORS origins for the web app.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Additionally allow any private-LAN origin (192.168.x.x / 10.x.x.x / 172.16-31.x.x).
+    # This is what lets you open the web app from your phone at http://192.168.1.5:5173
+    # without editing config every time your IP changes. Auth is bearer-token based rather
+    # than cookie based, so this does not expose a CSRF surface -- but set it to false in
+    # production, where the exact web origin is known and should be pinned.
+    cors_allow_private_lan: bool = True
+
+    # Directory searched for the APK served at /download/apk, so the web app's
+    # "Download Android APK" button can hand a phone the file over the same LAN it already
+    # uses to reach this backend. Relative paths resolve against the repository root.
+    apk_dir: str = "dist"
+
     # Pairing code lifetime, in seconds, before it is rotated (if the camera is still
     # connected) or the session is dropped (if not).
     code_ttl_seconds: int = 300

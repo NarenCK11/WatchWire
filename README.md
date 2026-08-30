@@ -24,7 +24,7 @@ Android Camera → Local Motion Detection → WebSocket → FastAPI Backend → 
 - [Prerequisites](#prerequisites)
 - [1. Run the backend](#1-run-the-backend)
 - [2. Run the web app](#2-run-the-web-app)
-- [3. Build and install the Android app](#3-build-and-install-the-android-app)
+- [3. Install the Android app](#3-install-the-android-app)
 - [End-to-end test](#end-to-end-test)
 - [Configuration reference](#configuration-reference)
 - [Production deployment](#production-deployment)
@@ -105,11 +105,13 @@ see [Configuration reference](#configuration-reference).
 ```bash
 cd web
 npm install
-cp .env.example .env      # optional; defaults point at http://localhost:8000
-npm run dev
+cp .env.example .env      # optional; the defaults need no configuration
+npm run dev -- --host     # --host exposes it on your LAN so a phone can reach it
 ```
 
-Open <http://localhost:5173>.
+Open <http://localhost:5173>, or from a phone on the same Wi-Fi,
+`http://<your-computer-LAN-IP>:5173`. The app derives the backend address from whichever
+host served the page, so both work with no configuration.
 
 Other scripts: `npm run build` (typecheck + production bundle to `dist/`),
 `npm run preview` (serve the built bundle), `npm run lint`.
@@ -139,8 +141,27 @@ laptop's firewall must allow inbound port 8000, and the backend must be started 
 
 ### Install
 
-Copy the APK to the phone and open it — you'll be prompted to allow "install from unknown
-sources". Or over USB with debugging enabled:
+**Easiest: download it from the web app, on the phone itself.**
+
+1. Put an APK in the repo's `dist/` folder (the release build writes them to
+   `android/app/build/outputs/apk/release/` — copy them across, or point
+   `WATCHWIRE_APK_DIR` at that directory).
+2. Start the web app with `npm run dev -- --host` so it's reachable from the LAN.
+3. On the phone's browser open **`http://<your-computer-LAN-IP>:5173`** (e.g.
+   `http://192.168.1.6:5173`) and tap **Download Android APK**, then open the downloaded
+   file.
+
+The backend serves the APK at `GET /download/apk` with the
+`application/vnd.android.package-archive` content type, which is what makes Android offer to
+install it. It picks `arm64-v8a` if present, then `armeabi-v7a`, then `universal` — and never
+hands out the emulator-only `x86_64` build. The endpoint is intentionally unauthenticated:
+it's the client you need *in order* to log in.
+
+The web app infers the backend from whatever host served the page, so opening it by LAN IP
+just works — no rebuild, no env vars. Override with `VITE_API_BASE_URL` / `VITE_WS_BASE_URL`
+if the backend lives elsewhere.
+
+**Alternative:** copy the APK across by USB/cloud and open it, or with adb:
 
 ```bash
 adb install -r watchwire-arm64-v8a-release.apk
@@ -162,9 +183,8 @@ refuses to install, use `universal`.
 OpenCV's native library accounts for nearly all of the size, which is why the app ships one
 slim APK per CPU architecture instead of a single fat one.
 
-The web app's **Download Android APK** button on the login page points at `VITE_APK_URL` —
-set that to wherever you host the APK (a GitHub Release asset works well) and users can grab
-it straight from the login screen.
+To host the APK somewhere else instead (a GitHub Release asset, a CDN), point
+`VITE_APK_URL` at it and the login page's button will use that.
 
 ### Building it yourself (optional)
 
@@ -265,6 +285,8 @@ All variables are prefixed `WATCHWIRE_`. See [`backend/app/config.py`](backend/a
 | `WATCHWIRE_SESSION_MAX_LIFETIME_HOURS` | `12` | Hard cap on any session |
 | `WATCHWIRE_LOGIN_MAX_ATTEMPTS` | `5` | Failed logins before lockout |
 | `WATCHWIRE_LOGIN_LOCKOUT_SECONDS` | `300` | Lockout duration |
+| `WATCHWIRE_CORS_ALLOW_PRIVATE_LAN` | `true` | Also accept any private-LAN origin, so the web app works when opened by IP from a phone. Set `false` in production |
+| `WATCHWIRE_APK_DIR` | `dist` | Directory searched for the APK served at `/download/apk` (relative paths resolve from the repo root) |
 
 Generate a good secret:
 
@@ -276,9 +298,9 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_API_BASE_URL` | `http://localhost:8000` | Backend REST base URL |
-| `VITE_WS_BASE_URL` | `ws://localhost:8000` | Backend WebSocket base URL (`wss://` in production) |
-| `VITE_APK_URL` | `/watchwire.apk` | Target of the **Download Android APK** button |
+| `VITE_API_BASE_URL` | *page host* `:8000` | Backend REST base URL. Defaults to the host that served the page, so opening the app by LAN IP from a phone works unchanged |
+| `VITE_WS_BASE_URL` | *page host* `:8000` | Backend WebSocket base URL (`wss://` when the page is HTTPS) |
+| `VITE_APK_URL` | `<API_BASE_URL>/download/apk` | Target of the **Download Android APK** button |
 
 ### Android
 

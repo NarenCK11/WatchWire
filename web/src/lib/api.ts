@@ -15,6 +15,24 @@ interface LoginResponse {
   expires_in: number;
 }
 
+export interface ApkInfo {
+  available: boolean;
+  filename?: string;
+  size_bytes?: number;
+}
+
+/** Best-effort: a backend that's down or an older build without this endpoint just means
+ * "unknown", and the caller falls back to offering the link anyway. */
+export async function fetchApkInfo(): Promise<ApkInfo | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/download/apk/info`);
+    if (!response.ok) return null;
+    return (await response.json()) as ApkInfo;
+  } catch {
+    return null;
+  }
+}
+
 export async function login(username: string, password: string): Promise<LoginResponse> {
   let response: Response;
   try {

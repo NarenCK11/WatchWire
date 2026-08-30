@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import auth, ws_camera, ws_client
+from .routers import auth, download, ws_camera, ws_client
 from .sessions import session_store
 from .users import user_store
 from .ws_utils import send_json_safe
@@ -65,15 +65,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="WatchWire Backend", version="1.0.0", lifespan=lifespan)
 
+# Matches http(s)://<private-LAN-ip>[:port] so the web app can be opened from a phone on the
+# same network without pinning that machine's IP in config. See Settings.cors_allow_private_lan.
+PRIVATE_LAN_ORIGIN_REGEX = (
+    r"https?://(?:"
+    r"192\.168\.\d{1,3}\.\d{1,3}"
+    r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|localhost|127\.0\.0\.1"
+    r")(?::\d+)?"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=PRIVATE_LAN_ORIGIN_REGEX if settings.cors_allow_private_lan else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth.router)
+app.include_router(download.router)
 app.include_router(ws_camera.router)
 app.include_router(ws_client.router)
 
