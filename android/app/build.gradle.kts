@@ -5,6 +5,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Release signing is configured only when a keystore is supplied (via -P flags or
+// ~/.gradle/gradle.properties). Without it the release build still succeeds, just unsigned --
+// so contributors don't need a keystore to compile. The keystore and its passwords must
+// never be committed.
+val keystorePath = (project.findProperty("watchwireKeystore") as String?)?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.watchwire.app"
     compileSdk = 34
@@ -17,27 +23,41 @@ android {
         versionName = "1.0.0"
 
         // Overridable at build time: -PbackendWsUrl=wss://your-host
+        // This is only the *default* -- the pairing screen lets the user change it at
+        // runtime, which is how a prebuilt APK is pointed at an arbitrary backend.
         buildConfigField("String", "DEFAULT_WS_URL", "\"${project.findProperty("backendWsUrl") ?: "ws://10.0.2.2:8000"}\"")
+    }
 
-        // OpenCV's native library is large; only ship the ABIs real devices use (all
-        // four architectures it publishes would roughly double the APK size). Per-variant
-        // abiFilters are additive on top of this set (see the debug build type below),
-        // never subtractive, so x86_64 -- only useful for the emulator -- is added there
-        // instead of listed here.
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+    // OpenCV's native library dominates the APK size, so build one slim APK per ABI plus a
+    // universal fallback. The per-ABI APKs are what you'd hand to a known device; the
+    // universal one installs anywhere (real phones and emulators) at roughly double the size.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = project.findProperty("watchwireKeystorePassword") as String?
+                keyAlias = project.findProperty("watchwireKeyAlias") as String?
+                keyPassword = project.findProperty("watchwireKeyPassword") as String?
+            }
         }
     }
 
     buildTypes {
-        debug {
-            ndk {
-                abiFilters += "x86_64"
-            }
-        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (keystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

@@ -116,44 +116,67 @@ Other scripts: `npm run build` (typecheck + production bundle to `dist/`),
 
 ---
 
-## 3. Build and install the Android app
+## 3. Install the Android app
 
-### Point the app at your backend
+### You do not need to rebuild the app to point it at your backend
 
-The phone cannot reach your laptop on `localhost`. Pick the right host:
+The backend URL is **set inside the app at runtime** — the pairing screen has a
+`Server: … (tap to edit)` link. So one APK works against any backend: install it once, tap
+the server line, type your URL. There is a compiled-in *default* (`ws://10.0.2.2:8000`, the
+emulator's alias for your host machine), but it is only a starting value.
 
-| Where the app runs | Backend URL to use |
+Pick the URL for your situation — the phone can never reach your laptop on `localhost`:
+
+| Where the app runs | Backend URL to enter |
 |---|---|
-| Android **emulator** | `ws://10.0.2.2:8000` (the emulator's alias for your host) |
+| Android **emulator** | `ws://10.0.2.2:8000` (already the default) |
 | **Real phone** on the same Wi-Fi | `ws://<your-computer-LAN-IP>:8000`, e.g. `ws://192.168.1.42:8000` |
 | Production | `wss://watchwire.example.com` |
 
-Find your LAN IP with `ipconfig` (Windows) or `ifconfig | grep inet` (macOS/Linux).
+Find your LAN IP with `ipconfig` (Windows) or `ifconfig | grep inet` (macOS/Linux). Your
+laptop's firewall must allow inbound port 8000, and the backend must be started with
+`--host 0.0.0.0`.
 
-You can bake the URL in at build time:
+### Install
+
+Copy the APK to the phone and open it — you'll be prompted to allow "install from unknown
+sources". Or over USB with debugging enabled:
 
 ```bash
-cd android
-./gradlew :app:assembleDebug -PbackendWsUrl=ws://192.168.1.42:8000
+adb install -r watchwire-arm64-v8a-release.apk
 ```
 
-…or leave the default and **change it at runtime**: the app's pairing screen has a
-`Server: … (tap to edit)` link. This is the easiest path — build once, retarget freely.
+Then: open WatchWire → grant camera + notification permissions → tap `Server:` → enter your
+backend URL → the pairing code appears.
 
-### Build
+**Which APK?** `arm64-v8a` covers essentially every phone made in the last decade. If it
+refuses to install, use `universal`.
+
+| APK | Size | Use it for |
+|---|---|---|
+| `arm64-v8a` | ~29 MB | **Almost certainly this one** — any modern phone |
+| `armeabi-v7a` | ~23 MB | Older 32-bit-only devices |
+| `x86_64` | ~61 MB | Android emulators |
+| `universal` | ~137 MB | Installs anywhere; use if unsure |
+
+OpenCV's native library accounts for nearly all of the size, which is why the app ships one
+slim APK per CPU architecture instead of a single fat one.
+
+The web app's **Download Android APK** button on the login page points at `VITE_APK_URL` —
+set that to wherever you host the APK (a GitHub Release asset works well) and users can grab
+it straight from the login screen.
+
+### Building it yourself (optional)
 
 ```bash
 cd android
-
-./gradlew :app:assembleDebug      # → app/build/outputs/apk/debug/app-debug.apk    (~101 MB)
-./gradlew :app:assembleRelease    # → app/build/outputs/apk/release/app-release-unsigned.apk (~44 MB)
+./gradlew :app:assembleRelease   # → app/build/outputs/apk/release/
+./gradlew :app:assembleDebug     # → app/build/outputs/apk/debug/
 ```
 
 > Windows note: use `gradlew.bat` from `cmd.exe`/PowerShell, or `./gradlew` from Git Bash.
 
-The debug APK is larger because it also bundles the `x86_64` native libraries so it runs on
-the emulator. The release APK ships only `armeabi-v7a` + `arm64-v8a`. OpenCV's native library
-accounts for nearly all of the size.
+To bake in a different default backend URL: `-PbackendWsUrl=wss://your-host`.
 
 If Gradle can't find your SDK, create `android/local.properties`:
 
@@ -169,28 +192,29 @@ sdk.dir=C:/Users/you/AppData/Local/Android/sdk
 
 (That file is machine-specific and intentionally git-ignored.)
 
-### Install
+### Signing a release build
+
+Without a keystore, `assembleRelease` still succeeds but produces **unsigned** APKs, which
+Android refuses to install. Create a keystore once:
 
 ```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+keytool -genkeypair -v -keystore watchwire-release.jks \
+  -alias watchwire -keyalg RSA -keysize 2048 -validity 10000
 ```
 
-Or copy the APK to the phone and open it (you'll need to allow "install from unknown
-sources"). The web app's **Download Android APK** button on the login page is wired to
-`VITE_APK_URL` for exactly this — point it at wherever you host the built APK.
-
-### Signing a release APK
-
-`assembleRelease` produces an *unsigned* APK. To sign it:
+Then pass it to the build:
 
 ```bash
-keytool -genkey -v -keystore watchwire.jks -keyalg RSA -keysize 2048 -validity 10000 -alias watchwire
-
-"$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
-  --ks watchwire.jks \
-  --out watchwire-release.apk \
-  app/build/outputs/apk/release/app-release-unsigned.apk
+./gradlew :app:assembleRelease \
+  -PwatchwireKeystore=/absolute/path/to/watchwire-release.jks \
+  -PwatchwireKeystorePassword=... \
+  -PwatchwireKeyAlias=watchwire \
+  -PwatchwireKeyPassword=...
 ```
+
+Put those four properties in `~/.gradle/gradle.properties` to avoid repeating them. **Never
+commit the keystore or its passwords** — keep them outside the repository. Verify a build
+with `apksigner verify --print-certs <apk>`.
 
 ---
 
@@ -377,6 +401,18 @@ Click **🔊 Enable Sound** once. Browsers require a user gesture before audio c
 Check that the persistent notification is present. Some vendors (Xiaomi, Huawei, Samsung,
 OnePlus) aggressively kill background apps — exempt WatchWire from battery optimization in
 system settings. Note that monitoring intentionally does **not** survive a force-stop.
+
+**`INSTALL_FAILED_UPDATE_INCOMPATIBLE` / "signatures do not match"**
+You're installing a differently-signed build over an existing one (e.g. release over debug).
+Uninstall first: `adb uninstall com.watchwire.app`.
+
+**`INSTALL_FAILED_NO_MATCHING_ABIS`**
+Wrong CPU architecture for that device. Use the `universal` APK, or the `x86_64` one for an
+emulator.
+
+**`App not installed` when tapping the APK on the phone**
+The APK is unsigned. A release build only gets signed if you pass the keystore properties —
+see [Signing a release build](#signing-a-release-build).
 
 **`SDK location not found`**
 Create `android/local.properties` with `sdk.dir=/path/to/Android/sdk`.

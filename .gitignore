@@ -35,3 +35,6 @@ Thumbs.db
 
 # --- Logs ---
 *.log
+
+# Built APKs staged for distribution (never commit binaries)
+/dist/
