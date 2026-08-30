@@ -158,7 +158,13 @@ accounts for nearly all of the size.
 If Gradle can't find your SDK, create `android/local.properties`:
 
 ```properties
+# macOS / Linux
 sdk.dir=/absolute/path/to/Android/sdk
+
+# Windows — use forward slashes (or escaped \\ backslashes); a path with single
+# backslashes is silently mangled by the .properties format and fails with
+# "The filename, directory name, or volume label syntax is incorrect".
+sdk.dir=C:/Users/you/AppData/Local/Android/sdk
 ```
 
 (That file is machine-specific and intentionally git-ignored.)
@@ -374,6 +380,11 @@ system settings. Note that monitoring intentionally does **not** survive a force
 
 **`SDK location not found`**
 Create `android/local.properties` with `sdk.dir=/path/to/Android/sdk`.
+
+**`The filename, directory name, or volume label syntax is incorrect` during the Android build**
+Your `sdk.dir` in `android/local.properties` uses single backslashes. `.properties` files
+treat `\` as an escape character, so `C:\Users\…` silently becomes `C:Users…`. Use forward
+slashes (`C:/Users/…`) or double backslashes.
 
 **Gradle can't download its distribution**
 The wrapper fetches Gradle 8.7 on first run. Behind a restrictive proxy, either install
