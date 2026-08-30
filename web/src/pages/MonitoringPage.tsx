@@ -45,7 +45,7 @@ export function MonitoringPage() {
           <span className="brand__icon">📡</span>
           <h1 className="brand__name">WatchWire</h1>
         </div>
-        <button type="button" className="btn btn--link" onClick={logout}>
+        <button type="button" className="btn btn--link" onClick={() => logout()}>
           Log out
         </button>
       </header>

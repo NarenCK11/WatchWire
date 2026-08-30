@@ -294,6 +294,13 @@ input {
   color: var(--danger);
 }
 
+/* Banner used inside a card (rather than full-width across the monitoring page). */
+.banner--stacked {
+  display: block;
+  margin-top: 14px;
+  text-align: left;
+}
+
 .apk-note {
   font-size: 0.8rem;
   margin: 10px 0 0;

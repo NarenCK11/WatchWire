@@ -404,6 +404,23 @@ The URL is wrong or unreachable. Tap `Server:` on the pairing screen and check i
 `10.0.2.2` on the emulator, your LAN IP on a real phone — never `localhost`. Confirm the
 backend was started with `--host 0.0.0.0`, and that your firewall allows port 8000.
 
+**You get signed out whenever you restart the backend**
+Expected with the default config, and the app now tells you so instead of hanging. The JWT
+secret is randomly regenerated on every start, which invalidates tokens already stored in
+the browser. To keep sessions across restarts, set a fixed one in `backend/.env`:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # put the result in WATCHWIRE_JWT_SECRET
+```
+
+**Backend won't start: `[Errno 10048] only one usage of each socket address`**
+Port 8000 is already taken by an earlier backend. Find and stop it:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object OwningProcess
+Stop-Process -Id <that-id> -Force
+```
+
 **`That code is invalid or has expired`**
 Codes last 5 minutes and are single-use. Read the current code off the phone screen — it
 rotates automatically.

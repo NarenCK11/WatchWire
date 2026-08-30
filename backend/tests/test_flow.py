@@ -86,13 +86,32 @@ def test_pair_race_is_resolved_atomically(client, auth_token):
     assert sorted(results) == [False, True]
 
 
-def test_client_ws_requires_valid_token(client):
-    try:
-        with client.websocket_connect("/ws/client?token=garbage") as ws:
+def test_client_ws_rejects_invalid_token_with_a_readable_reason(client):
+    # The connection must be accepted before closing, otherwise Starlette emits a bare HTTP
+    # 403 and the browser reports a generic 1006 -- leaving the web app unable to tell an
+    # expired token apart from a network blip, and retrying forever.
+    from starlette.websockets import WebSocketDisconnect
+
+    with client.websocket_connect("/ws/client?token=garbage") as ws:
+        message = ws.receive_json()
+        assert message["type"] == "error"
+        assert message["code"] == "UNAUTHENTICATED"
+
+        try:
             ws.receive_json()
-        assert False, "expected the connection to be rejected"
-    except Exception:
-        pass
+            assert False, "expected the server to close the connection"
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4401
+
+
+def test_client_ws_rejects_a_token_signed_with_a_different_secret(client):
+    # Exactly what happens after a backend restart: the JWT secret is regenerated, so tokens
+    # still sitting in the browser's localStorage no longer verify.
+    import jwt as pyjwt
+
+    forged = pyjwt.encode({"sub": "admin"}, "some-other-secret", algorithm="HS256")
+    with client.websocket_connect(f"/ws/client?token={forged}") as ws:
+        assert ws.receive_json()["code"] == "UNAUTHENTICATED"
 
 
 def test_invalid_message_shape_does_not_crash_connection(client):

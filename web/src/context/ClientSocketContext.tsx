@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { WS_BASE_URL } from "../lib/config";
+import { WS_CLOSE_UNAUTHENTICATED } from "../lib/types";
 import type { MotionEvent, PairingStatus, ServerToClientMessage, SocketStatus } from "../lib/types";
 import { useAuth } from "./AuthContext";
 
@@ -37,7 +38,7 @@ function makeEventId(): string {
 }
 
 export function ClientSocketProvider({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, logout } = useAuth();
 
   const [socketStatus, setSocketStatus] = useState<SocketStatus>("disconnected");
   const [pairingStatus, setPairingStatus] = useState<PairingStatus>("idle");
@@ -55,6 +56,9 @@ export function ClientSocketProvider({ children }: { children: ReactNode }) {
   const pendingPairRef = useRef<{ resolve: () => void; reject: (err: Error) => void } | null>(null);
   const pendingPairTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pairInFlightRef = useRef(false);
+  /** Set once the server has told us the token is invalid, so the backoff loop gives up
+   * instead of reconnecting forever with credentials that can never work. */
+  const authFailedRef = useRef(false);
 
   const setClientToken = useCallback((value: string | null) => {
     clientTokenRef.current = value;
@@ -124,6 +128,15 @@ export function ClientSocketProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "error": {
+          if (message.code === "UNAUTHENTICATED") {
+            // The login token is dead (commonly: the backend restarted and regenerated its
+            // JWT secret). Retrying can never succeed, so drop it and send the user back to
+            // the login page rather than spinning forever.
+            authFailedRef.current = true;
+            setClientToken(null);
+            logout("Your session expired, so you were signed out. Please log in again.");
+            break;
+          }
           if (message.code === "SESSION_EXPIRED" || message.code === "INVALID_SESSION") {
             setClientToken(null);
             setPairingStatus("idle");
@@ -140,7 +153,7 @@ export function ClientSocketProvider({ children }: { children: ReactNode }) {
           break;
       }
     },
-    [setClientToken, settlePendingPair],
+    [setClientToken, settlePendingPair, logout],
   );
 
   const connectSocket = useCallback((): WebSocket | null => {
@@ -180,13 +193,23 @@ export function ClientSocketProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       clearHeartbeat();
       wsRef.current = null;
       setCameraConnected(false);
 
       if (manualCloseRef.current) {
         setSocketStatus("disconnected");
+        return;
+      }
+
+      // A rejected token can never succeed on retry -- stop and force a fresh login. The
+      // explicit close code covers the case where the error frame didn't arrive first.
+      if (event.code === WS_CLOSE_UNAUTHENTICATED || authFailedRef.current) {
+        authFailedRef.current = false;
+        setSocketStatus("disconnected");
+        setClientToken(null);
+        logout("Your session expired, so you were signed out. Please log in again.");
         return;
       }
 
@@ -208,7 +231,7 @@ export function ClientSocketProvider({ children }: { children: ReactNode }) {
 
     return ws;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, clearHeartbeat, clearReconnectTimer, handleServerMessage]);
+  }, [token, clearHeartbeat, clearReconnectTimer, handleServerMessage, logout, setClientToken]);
 
   useEffect(() => {
     if (!isAuthenticated) {

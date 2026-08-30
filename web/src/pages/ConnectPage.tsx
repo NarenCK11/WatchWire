@@ -92,7 +92,7 @@ export function ConnectPage() {
           </span>
         </p>
 
-        <button type="button" className="btn btn--link" onClick={logout}>
+        <button type="button" className="btn btn--link" onClick={() => logout()}>
           Log out
         </button>
       </div>

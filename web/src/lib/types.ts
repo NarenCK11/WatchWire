@@ -50,5 +50,8 @@ export interface MotionEvent {
   receivedAt: number;
 }
 
+/** Close code the backend uses to say "this token is no longer valid". */
+export const WS_CLOSE_UNAUTHENTICATED = 4401;
+
 export type PairingStatus = "idle" | "restoring" | "pairing" | "paired" | "error";
 export type SocketStatus = "disconnected" | "connecting" | "connected" | "reconnecting";

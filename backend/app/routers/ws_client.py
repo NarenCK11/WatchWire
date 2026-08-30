@@ -42,6 +42,17 @@ async def _send_paired(websocket: WebSocket, session: Session) -> None:
 async def client_endpoint(websocket: WebSocket, token: str = Query(...)) -> None:
     username = decode_access_token(token)
     if username is None or user_store.get(username) is None:
+        # Accept first, then close with a reason. Closing *before* accept makes Starlette
+        # emit a bare HTTP 403, and browsers surface a failed handshake as a generic 1006
+        # with no code or reason -- leaving the web client unable to tell "your token
+        # expired, log in again" apart from "the network blipped, keep retrying".
+        # This happens routinely in development: the JWT secret is random per process, so
+        # every backend restart invalidates tokens already sitting in localStorage.
+        await websocket.accept()
+        await send_json_safe(
+            websocket,
+            {"type": "error", "code": "UNAUTHENTICATED", "message": "Your session has expired. Please log in again."},
+        )
         await websocket.close(code=CLOSE_UNAUTHENTICATED, reason="Not authenticated")
         return
 

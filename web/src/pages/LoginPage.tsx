@@ -9,7 +9,7 @@ function formatMb(bytes: number): string {
 }
 
 export function LoginPage() {
-  const { isAuthenticated, isLoggingIn, loginError, login } = useAuth();
+  const { isAuthenticated, isLoggingIn, loginError, sessionEndedMessage, login } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -39,6 +39,12 @@ export function LoginPage() {
           <h1 className="brand__name">WatchWire</h1>
         </div>
         <p className="muted">Remote motion monitoring for your Android camera.</p>
+
+        {sessionEndedMessage && !loginError && (
+          <div className="banner banner--warning banner--stacked" role="status">
+            {sessionEndedMessage}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="form">
           <label className="form__field">
