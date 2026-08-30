@@ -25,7 +25,15 @@ import androidx.compose.ui.unit.sp
 import com.watchwire.app.ConnectionStatus
 
 @Composable
-fun ConnectingScreen(connectionStatus: ConnectionStatus) {
+fun ConnectingScreen(
+    connectionStatus: ConnectionStatus,
+    wsBaseUrl: String,
+    lastError: String?,
+    onUpdateServerUrl: (String) -> Unit,
+) {
+    var editingUrl by remember { mutableStateOf(false) }
+    var urlDraft by remember(wsBaseUrl) { mutableStateOf(wsBaseUrl) }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -37,6 +45,42 @@ fun ConnectingScreen(connectionStatus: ConnectionStatus) {
             modifier = Modifier.padding(top = 16.dp),
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // Without this the user is stranded on a spinner with no idea what's wrong and no
+        // way to correct the address, since the editor otherwise only appears once a code
+        // has been issued -- which requires the connection that's failing.
+        if (lastError != null) {
+            Text(
+                text = lastError,
+                modifier = Modifier.padding(top = 16.dp),
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        if (editingUrl) {
+            OutlinedTextField(
+                value = urlDraft,
+                onValueChange = { urlDraft = it },
+                label = { Text("Server WebSocket URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+            )
+            Button(
+                onClick = {
+                    editingUrl = false
+                    onUpdateServerUrl(urlDraft.trim())
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text("Save & Reconnect")
+            }
+        } else {
+            TextButton(onClick = { editingUrl = true }, modifier = Modifier.padding(top = 24.dp)) {
+                Text("Server: $wsBaseUrl (tap to edit)")
+            }
+        }
     }
 }
 

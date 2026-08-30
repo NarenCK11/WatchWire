@@ -68,13 +68,21 @@ private fun WatchWireScreen() {
     val lastMotionEvent by WatchWireRepository.lastMotionEvent.collectAsState()
     var sensitivity by remember { mutableStateOf(WatchWireRepository.sensitivity) }
 
+    val lastConnectionError by WatchWireRepository.lastConnectionError.collectAsState()
+    val wsBaseUrl by WatchWireRepository.wsBaseUrl.collectAsState()
+
     when (val state = pairingState) {
-        PairingState.AwaitingConnection -> ConnectingScreen(connectionStatus)
+        PairingState.AwaitingConnection -> ConnectingScreen(
+            connectionStatus = connectionStatus,
+            wsBaseUrl = wsBaseUrl,
+            lastError = lastConnectionError,
+            onUpdateServerUrl = { WatchWireRepository.updateWsBaseUrl(it) },
+        )
 
         is PairingState.CodeReady -> PairingScreen(
             code = state.code,
             connectionStatus = connectionStatus,
-            wsBaseUrl = WatchWireRepository.wsBaseUrl,
+            wsBaseUrl = wsBaseUrl,
             onUpdateServerUrl = { WatchWireRepository.updateWsBaseUrl(it) },
         )
 

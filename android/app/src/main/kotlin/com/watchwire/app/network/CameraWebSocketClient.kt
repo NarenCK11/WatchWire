@@ -12,6 +12,22 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "CameraWsClient"
 
+/**
+ * Makes a hand-typed server address usable. People reasonably type `192.168.1.6:8000`,
+ * `http://192.168.1.6:8000`, or paste something with a trailing slash; all of those should
+ * work rather than silently failing to connect.
+ */
+internal fun normalizeWsUrl(raw: String): String {
+    val url = raw.trim().trimEnd('/')
+    return when {
+        url.startsWith("ws://", ignoreCase = true) || url.startsWith("wss://", ignoreCase = true) -> url
+        url.startsWith("https://", ignoreCase = true) -> "wss://" + url.substring("https://".length)
+        url.startsWith("http://", ignoreCase = true) -> "ws://" + url.substring("http://".length)
+        // No scheme at all -- assume plain ws, which is the common LAN-development case.
+        else -> "ws://$url"
+    }
+}
+
 /** One WebSocket connection to /ws/camera. The repository creates a fresh instance for
  * each connection attempt and discards it on close/failure -- reconnection with backoff
  * is the repository's job, not this class's. */
@@ -41,7 +57,7 @@ class CameraWebSocketClient(
 
     fun connect() {
         val url = buildString {
-            append(baseWsUrl.trimEnd('/'))
+            append(normalizeWsUrl(baseWsUrl))
             append("/ws/camera")
             if (!cameraToken.isNullOrBlank()) {
                 append("?camera_token=")
@@ -49,7 +65,17 @@ class CameraWebSocketClient(
             }
         }
         Log.i(TAG, "Connecting to $url")
-        val request = Request.Builder().url(url).build()
+
+        // A user-entered URL can still be unparseable after normalization (e.g. stray
+        // spaces). Report it through the normal failure path instead of throwing out of
+        // connect(), which runs on the caller's thread and would take the app down.
+        val request = try {
+            Request.Builder().url(url).build()
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "Invalid server URL: $url", e)
+            listener.onFailure(IllegalArgumentException("Invalid server address: $baseWsUrl", e))
+            return
+        }
         webSocket = client.newWebSocket(
             request,
             object : WebSocketListener() {

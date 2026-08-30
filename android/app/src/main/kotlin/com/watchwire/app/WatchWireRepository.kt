@@ -52,19 +52,36 @@ object WatchWireRepository {
     private val _lastMotionEvent = MutableStateFlow<MotionEvent?>(null)
     val lastMotionEvent: StateFlow<MotionEvent?> = _lastMotionEvent.asStateFlow()
 
+    /** Why the last connection attempt failed, shown on the connecting screen so a wrong
+     * address or an unreachable host is diagnosable from the device instead of needing adb. */
+    private val _lastConnectionError = MutableStateFlow<String?>(null)
+    val lastConnectionError: StateFlow<String?> = _lastConnectionError.asStateFlow()
+
     private var wsClient: CameraWebSocketClient? = null
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
     private var manualClose = true
 
+    /** Incremented every time we open (or deliberately tear down) a socket. OkHttp delivers
+     * onClosed/onFailure asynchronously, so a socket we already replaced can report its death
+     * *after* its successor is live. Every callback carries the generation it was created
+     * with and is ignored unless it still matches -- otherwise a stale close would null out
+     * the current client and strand the UI on "Connecting to server...". */
+    private var connectionGeneration = 0
+
+    private val _wsBaseUrl = MutableStateFlow("")
+
+    /** Observable so the UI reflects a URL change immediately; the authoritative copy lives
+     * in SharedPreferences and is what the socket actually dials. */
+    val wsBaseUrl: StateFlow<String> = _wsBaseUrl.asStateFlow()
+
     fun init(context: Context) {
         if (initialized) return
         appContext = context.applicationContext
         prefs = Prefs(appContext)
+        _wsBaseUrl.value = prefs.wsBaseUrl
         initialized = true
     }
-
-    val wsBaseUrl: String get() = prefs.wsBaseUrl
 
     val sensitivity: Float get() = prefs.sensitivity
     fun setSensitivity(value: Float) {
@@ -75,7 +92,9 @@ object WatchWireRepository {
      * different server. */
     fun updateWsBaseUrl(url: String) {
         prefs.wsBaseUrl = url
+        _wsBaseUrl.value = url
         prefs.cameraToken = null
+        _lastConnectionError.value = null
         disconnect()
         connect()
     }
@@ -87,31 +106,44 @@ object WatchWireRepository {
     }
 
     private fun openSocket() {
+        val generation = ++connectionGeneration
         _connectionStatus.value = ConnectionStatus.CONNECTING
-        val client = CameraWebSocketClient(
+
+        lateinit var client: CameraWebSocketClient
+        client = CameraWebSocketClient(
             baseWsUrl = prefs.wsBaseUrl,
             cameraToken = prefs.cameraToken,
             listener = object : CameraWebSocketClient.Listener {
                 override fun onOpen() {
+                    if (generation != connectionGeneration) return
                     reconnectAttempt = 0
+                    _lastConnectionError.value = null
                     _connectionStatus.value = ConnectionStatus.CONNECTED
                     if (_monitoringActive.value) {
                         // Reconnected mid-monitoring-session: let the server know we're
                         // still live so the web UI doesn't show a stale "Idle" badge.
-                        wsClient?.sendMonitoringStarted()
+                        // Send on *our* socket, not the shared field, which may have moved on.
+                        client.sendMonitoringStarted()
                     }
                 }
 
                 override fun onServerMessage(message: ServerMessage) {
+                    if (generation != connectionGeneration) return
                     handleServerMessage(message)
                 }
 
                 override fun onClosed() {
+                    if (generation != connectionGeneration) return
                     handleDisconnect()
                 }
 
                 override fun onFailure(t: Throwable) {
+                    if (generation != connectionGeneration) {
+                        Log.d(TAG, "Ignoring failure from superseded socket (gen $generation)", t)
+                        return
+                    }
                     Log.w(TAG, "WebSocket failure", t)
+                    _lastConnectionError.value = describeFailure(t)
                     handleDisconnect()
                 }
             },
@@ -149,6 +181,21 @@ object WatchWireRepository {
         }
     }
 
+    /** Turns an OkHttp failure into something a person standing in front of the phone can act on. */
+    private fun describeFailure(t: Throwable): String {
+        val host = prefs.wsBaseUrl
+        return when (t) {
+            is IllegalArgumentException -> "Invalid server address. Expected something like ws://192.168.1.5:8000"
+            is java.net.SocketTimeoutException ->
+                "Timed out reaching $host. Check the phone and the server are on the same Wi-Fi, and that the server's firewall allows the port."
+            is java.net.ConnectException ->
+                "Couldn't connect to $host. Is the backend running with --host 0.0.0.0, and the port allowed through the firewall?"
+            is java.net.UnknownHostException -> "Can't resolve the host in $host. Check the address."
+            is javax.net.ssl.SSLException -> "TLS error talking to $host. Use ws:// for a plain local server, wss:// only behind HTTPS."
+            else -> t.message?.take(160) ?: t.javaClass.simpleName
+        }
+    }
+
     private fun handleDisconnect() {
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
         wsClient = null
@@ -168,6 +215,9 @@ object WatchWireRepository {
 
     fun disconnect() {
         manualClose = true
+        // Retire the current generation so the socket we're about to close can't report its
+        // (asynchronous) death after a replacement has already been opened.
+        connectionGeneration++
         reconnectJob?.cancel()
         wsClient?.close()
         wsClient = null
